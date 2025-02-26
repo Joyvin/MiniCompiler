@@ -1,5 +1,5 @@
-import llvmlite.ir as ir
-import llvmlite.binding as llvm
+import llvmlite.ir as ir # type: ignore
+import llvmlite.binding as llvm # type: ignore
 import ast
 import subprocess
 import sys
@@ -71,8 +71,31 @@ class LLVMCompiler(ast.NodeVisitor):
         if not self.builder.block.is_terminated:
             self.builder.ret(ir.Constant(ir.IntType(32), 0))
 
+    def visit_While(self, node):
+        func = self.builder.function
+
+        while_cond = func.append_basic_block("while_cond")
+        while_body = func.append_basic_block("while_body")
+        while_end = func.append_basic_block("while_end")
+
+        self.builder.branch(while_cond)
+        self.builder.position_at_end(while_cond)
+
+        cond = self.visit(node.test)
+        self.builder.cbranch(cond, while_body, while_end)
+
+        self.builder.position_at_end(while_body)
+        for stmt in node.body:
+            self.visit(stmt)
+
+        self.builder.branch(while_cond)
+
+        self.builder.position_at_end(while_end)
+
     def visit_Return(self, node):
-        self.builder.ret(self.visit(node.value))
+        if not self.builder.block.is_terminated:
+            self.builder.ret(self.visit(node.value))
+
 
     def visit_Assign(self, node):
         var_name = node.targets[0].id
@@ -118,48 +141,24 @@ class LLVMCompiler(ast.NodeVisitor):
         ops = {ast.Lt: '<', ast.LtE: '<=', ast.Gt: '>', ast.GtE: '>=', ast.Eq: '=='}
         return self.builder.icmp_signed(ops[type(node.ops[0])], lhs, rhs, "cmp") if type(node.ops[0]) in ops else None
 
-    def visit_If(self, node):
-        cond = self.visit(node.test)
-        func = self.builder.function
-        then_bb, else_bb, merge_bb = func.append_basic_block("then"), func.append_basic_block("else"), func.append_basic_block("merge")
-
-        self.builder.cbranch(cond, then_bb, else_bb)
-        self.builder.position_at_end(then_bb)
-        for stmt in node.body: self.visit(stmt)
-        if not self.builder.block.is_terminated: self.builder.branch(merge_bb)
-
-        self.builder.position_at_end(else_bb)
-        for stmt in node.orelse: self.visit(stmt)
-        if not self.builder.block.is_terminated: self.builder.branch(merge_bb)
-
-        self.builder.position_at_end(merge_bb)
-
     def handle_print(self, args):
-        """Handles print statements."""
         for arg in args:
             if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
                 fmt_ptr = self.create_string_constant(arg.value)
                 self.builder.call(self.printf, [fmt_ptr])
             else:
                 value = self.visit(arg)
-                if isinstance(value.type, ir.PointerType):
-                    value = self.builder.load(value)
                 fmt_ptr = self.create_string_constant("%d\n")
                 self.builder.call(self.printf, [fmt_ptr, value])
 
-def generate_executable(llvm_ir, output_filename="output"):
-    with open("output.ll", "w") as f:
-        f.write(llvm_ir)
-
-    subprocess.run(["llc", "-filetype=obj", "-relocation-model=pic", "output.ll"], check=True)
-    subprocess.run(["clang", "-o", output_filename, "output.o", "-fPIC", "-pie"], check=True)
-
 if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("Usage: python mini_compiler.py <source_file>")
+        sys.exit(1)
+
     with open(sys.argv[1], "r") as f:
         source_code = f.read()
 
     compiler = LLVMCompiler()
     llvm_ir = compiler.compile(source_code)
     print("Out File Generated Successfully")
-    
-    generate_executable(llvm_ir)

@@ -1,5 +1,5 @@
-import llvmlite.ir as ir # type: ignore
-import llvmlite.binding as llvm # type: ignore
+import llvmlite.ir as ir  # type: ignore
+import llvmlite.binding as llvm  # type: ignore
 import ast
 import subprocess
 import sys
@@ -96,7 +96,6 @@ class LLVMCompiler(ast.NodeVisitor):
         if not self.builder.block.is_terminated:
             self.builder.ret(self.visit(node.value))
 
-
     def visit_Assign(self, node):
         var_name = node.targets[0].id
         value = self.visit(node.value)
@@ -128,11 +127,14 @@ class LLVMCompiler(ast.NodeVisitor):
     def visit_Constant(self, node):
         if isinstance(node.value, int):
             return ir.Constant(ir.IntType(32), node.value)
+        elif isinstance(node.value, str):
+            # NEW: Handle string constants to avoid errors
+            return self.create_string_constant(node.value)
         raise NotImplementedError(f"Constant type {type(node.value)} not supported")
 
     def visit_BinOp(self, node):
         lhs, rhs = self.visit(node.left), self.visit(node.right)
-        ops = {ast.Add: self.builder.add, ast.Sub: self.builder.sub, 
+        ops = {ast.Add: self.builder.add, ast.Sub: self.builder.sub,
                ast.Mult: self.builder.mul, ast.Div: self.builder.sdiv}
         return ops[type(node.op)](lhs, rhs, "binop") if type(node.op) in ops else None
 

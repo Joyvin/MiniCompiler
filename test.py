@@ -9,6 +9,7 @@ def factorial(n):
     return n * factorial(n-1)
 
 def main(): 
-    num = 5
+    num = 5;
     print("Fibonnaci:", fibonacci(num))
     print("Factorial:", factorial(num))
+    
